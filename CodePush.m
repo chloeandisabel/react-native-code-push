@@ -37,6 +37,11 @@ static NSString *const PendingUpdateIsLoadingKey = @"isLoading";
 static NSString *const PackageHashKey = @"packageHash";
 static NSString *const PackageIsPendingKey = @"isPending";
 
+// These variables keep track of the name and extension of the JS bundle
+// compiled into the binary package.
+static NSString *bundleResourceName = @"main";
+static NSString *bundleResourceExtension = @"jsbundle";
+
 #pragma mark - Public Obj-C API
 
 + (NSURL *)bundleURL
@@ -46,6 +51,10 @@ static NSString *const PackageIsPendingKey = @"isPending";
 
 + (NSURL *)bundleURLForResource:(NSString *)resourceName
 {
+    if (![resourceName isEqualToString:bundleResourceName]) {
+        bundleResourceName = resourceName;
+    }
+    
     return [self bundleURLForResource:resourceName
                         withExtension:@"jsbundle"];
 }
@@ -53,46 +62,37 @@ static NSString *const PackageIsPendingKey = @"isPending";
 + (NSURL *)bundleURLForResource:(NSString *)resourceName
                   withExtension:(NSString *)resourceExtension
 {
+    if (![resourceName isEqualToString:bundleResourceName]) {
+        bundleResourceName = resourceName;
+    }
+    
+    if (![resourceExtension isEqualToString:bundleResourceExtension]) {
+        bundleResourceExtension = resourceExtension;
+    }
+    
     NSError *error;
-    NSString *packageFile = [CodePushPackage getCurrentPackageBundlePath:&error];
-    NSURL *binaryJsBundleUrl = [[NSBundle mainBundle] URLForResource:resourceName withExtension:resourceExtension];
-    
     NSString *logMessageFormat = @"Loading JS bundle from %@";
-    
+    NSString *packageFile = [CodePushPackage getCurrentPackageBundlePath:&error];
     if (error || !packageFile) {
-        NSLog(logMessageFormat, binaryJsBundleUrl);
         isRunningBinaryVersion = YES;
-        return binaryJsBundleUrl;
-    }
-    
-    NSDictionary *binaryFileAttributes = [[NSFileManager defaultManager] attributesOfItemAtPath:[binaryJsBundleUrl path] error:nil];
-    NSDictionary *appFileAttribs = [[NSFileManager defaultManager] attributesOfItemAtPath:packageFile error:nil];
-    NSDate *binaryDate = [binaryFileAttributes objectForKey:NSFileModificationDate];
-    NSDate *packageDate = [appFileAttribs objectForKey:NSFileModificationDate];
-    NSString *binaryAppVersion = [[CodePushConfig current] appVersion];
-    NSDictionary *currentPackageMetadata = [CodePushPackage getCurrentPackage:&error];
-    if (error || !currentPackageMetadata) {
-        NSLog(logMessageFormat, binaryJsBundleUrl);
-        isRunningBinaryVersion = YES;
-        return binaryJsBundleUrl;
-    }
-    
-    NSString *packageAppVersion = [currentPackageMetadata objectForKey:@"appVersion"];
-    
-    if ([binaryDate compare:packageDate] == NSOrderedAscending && ([CodePush isUsingTestConfiguration] ||[binaryAppVersion isEqualToString:packageAppVersion])) {
-        // Return package file because it is newer than the app store binary's JS bundle
-        NSURL *packageUrl = [[NSURL alloc] initFileURLWithPath:packageFile];
-        NSLog(logMessageFormat, packageUrl);
-        isRunningBinaryVersion = NO;
-        return packageUrl;
-    } else {
+    } else if ([self isBinaryJsBundleNewer:packageFile]) {
 #ifndef DEBUG
         [CodePush clearUpdates];
 #endif
-        
-        NSLog(logMessageFormat, binaryJsBundleUrl);
         isRunningBinaryVersion = YES;
+    } else {
+        isRunningBinaryVersion = NO;
+    }
+    
+    if (isRunningBinaryVersion) {
+        NSURL *binaryJsBundleUrl = [self getBinaryJsBundleURL];
+        NSLog(logMessageFormat, binaryJsBundleUrl);
         return binaryJsBundleUrl;
+        
+    } else {
+        NSURL *packageUrl = [[NSURL alloc] initFileURLWithPath:packageFile];
+        NSLog(logMessageFormat, packageUrl);
+        return packageUrl;
     }
 }
 
@@ -165,6 +165,11 @@ static NSString *const PackageIsPendingKey = @"isPending";
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
++ (NSURL *)getBinaryJsBundleURL
+{
+    return [[NSBundle mainBundle] URLForResource:bundleResourceName withExtension:bundleResourceExtension];
+}
+
 - (instancetype)init
 {
     self = [super init];
@@ -200,6 +205,33 @@ static NSString *const PackageIsPendingKey = @"isPending";
             [self savePendingUpdate:pendingUpdate[PendingUpdateHashKey]
                           isLoading:YES];
         }
+    }
+}
+
++ (BOOL)isBinaryJsBundleNewer:(NSString *)packageFile
+{
+    if (!packageFile) {
+        return YES;
+    }
+    
+    NSError *error;
+    NSURL *binaryJsBundleUrl = [self getBinaryJsBundleURL];
+    NSDictionary *binaryFileAttributes = [[NSFileManager defaultManager] attributesOfItemAtPath:[binaryJsBundleUrl path] error:nil];
+    NSDictionary *appFileAttribs = [[NSFileManager defaultManager] attributesOfItemAtPath:packageFile error:nil];
+    NSDate *binaryDate = [binaryFileAttributes objectForKey:NSFileModificationDate];
+    NSDate *packageDate = [appFileAttribs objectForKey:NSFileModificationDate];
+    NSString *binaryAppVersion = [[CodePushConfig current] appVersion];
+    NSDictionary *currentPackageMetadata = [CodePushPackage getCurrentPackage:&error];
+    if (error || !currentPackageMetadata) {
+        return YES;
+    }
+    
+    NSString *packageAppVersion = [currentPackageMetadata objectForKey:@"appVersion"];
+    if ([binaryDate compare:packageDate] == NSOrderedAscending && ([CodePush isUsingTestConfiguration] ||[binaryAppVersion isEqualToString:packageAppVersion])) {
+        // Return NO because it is newer than the app store binary's JS bundle
+        return NO;
+    } else {
+        return YES;
     }
 }
 
@@ -514,6 +546,7 @@ RCT_EXPORT_METHOD(getNewStatusReport:(RCTPromiseResolveBlock)resolve
 {
     
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSError *error;
         if (needToReportRollback) {
             needToReportRollback = NO;
             NSUserDefaults *preferences = [NSUserDefaults standardUserDefaults];
@@ -532,8 +565,7 @@ RCT_EXPORT_METHOD(getNewStatusReport:(RCTPromiseResolveBlock)resolve
                 resolve([CodePushTelemetryManager getUpdateReport:currentPackage]);
                 return;
             }
-        } else if (isRunningBinaryVersion || [_bridge.bundleURL.scheme hasPrefix:@"http"]) {
-            // Check if the current appVersion has been reported.
+        } else if (isRunningBinaryVersion || ([_bridge.bundleURL.scheme hasPrefix:@"http"] && [CodePush isBinaryJsBundleNewer:[CodePushPackage getCurrentPackageBundlePath:&error]])) {
             NSString *appVersion = [[CodePushConfig current] appVersion];
             resolve([CodePushTelemetryManager getBinaryUpdateReport:appVersion]);
             return;
