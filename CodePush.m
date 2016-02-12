@@ -64,21 +64,13 @@ static NSString *bundleResourceName = @"main";
 {
     bundleResourceName = resourceName;
     bundleResourceExtension = resourceExtension;
-    NSError *error;
-    NSString *packageFile = [CodePushPackage getCurrentPackageBundlePath:&error];
+    NSString *packageFile = [CodePushPackage getCurrentPackageBundlePath];
     NSURL *binaryBundleURL = [self binaryBundleURL];
+    NSString *binaryAppVersion = [[CodePushConfig current] appVersion];
+    NSDictionary *currentPackageMetadata = [CodePushPackage getCurrentPackage];
     
     NSString *logMessageFormat = @"Loading JS bundle from %@";
-    
-    if (error || !packageFile) {
-        NSLog(logMessageFormat, binaryBundleURL);
-        isRunningBinaryVersion = YES;
-        return binaryBundleURL;
-    }
-    
-    NSString *binaryAppVersion = [[CodePushConfig current] appVersion];
-    NSDictionary *currentPackageMetadata = [CodePushPackage getCurrentPackage:&error];
-    if (error || !currentPackageMetadata) {
+    if (!packageFile || !currentPackageMetadata) {
         NSLog(logMessageFormat, binaryBundleURL);
         isRunningBinaryVersion = YES;
         return binaryBundleURL;
@@ -292,7 +284,7 @@ static NSString *bundleResourceName = @"main";
  */
 + (NSString *)modifiedDateStringOfFileAtURL:(NSURL *)fileURL
 {
-    if (fileURL != nil) {
+    if (fileURL) {
         NSDictionary *fileAttributes = [[NSFileManager defaultManager] attributesOfItemAtPath:[fileURL path] error:nil];
         NSDate *modifiedDate = [fileAttributes objectForKey:NSFileModificationDate];
         return [NSString stringWithFormat:@"%f", [modifiedDate timeIntervalSince1970]];
@@ -310,16 +302,16 @@ static NSString *bundleResourceName = @"main";
  */
 - (void)rollbackPackage
 {
-    NSError *error;
-    NSDictionary *failedPackage = [CodePushPackage getCurrentPackage:&error];
-    
-    // Write the current package's metadata to the "failed list"
-    [self saveFailedUpdate:failedPackage];
-    
-    // Rollback to the previous version and de-register the new update
-    [CodePushPackage rollbackPackage];
-    [CodePush removePendingUpdate];
-    [self loadBundle];
+    NSDictionary *failedPackage = [CodePushPackage getCurrentPackage];
+    if (failedPackage) {
+        // Write the current package's metadata to the "failed list"
+        [self saveFailedUpdate:failedPackage];
+        
+        // Rollback to the previous version and de-register the new update
+        [CodePushPackage rollbackPackage];
+        [CodePush removePendingUpdate];
+        [self loadBundle];
+    }
 }
 
 /*
@@ -396,7 +388,7 @@ RCT_EXPORT_METHOD(downloadUpdate:(NSDictionary*)updatePackage
 {
     NSDictionary *mutableUpdatePackage = [updatePackage mutableCopy];
     NSURL *binaryBundleURL = [CodePush binaryBundleURL];
-    if (binaryBundleURL != nil) {
+    if (binaryBundleURL) {
         [mutableUpdatePackage setValue:[CodePush modifiedDateStringOfFileAtURL:binaryBundleURL]
                                 forKey:BinaryBundleDateKey];
     }
@@ -417,13 +409,7 @@ RCT_EXPORT_METHOD(downloadUpdate:(NSDictionary*)updatePackage
         // The download completed
         doneCallback:^{
             dispatch_async(_methodQueue, ^{
-                NSError *err;
-                NSDictionary *newPackage = [CodePushPackage getPackage:mutableUpdatePackage[PackageHashKey] error:&err];
-                    
-                if (err) {
-                    return reject([NSString stringWithFormat: @"%lu", (long)err.code], err.localizedDescription, err);
-                }
-                    
+                NSDictionary *newPackage = [CodePushPackage getPackage:mutableUpdatePackage[PackageHashKey]];
                 resolve(newPackage);
             });
         }
@@ -457,20 +443,19 @@ RCT_EXPORT_METHOD(getConfiguration:(RCTPromiseResolveBlock)resolve
 RCT_EXPORT_METHOD(getCurrentPackage:(RCTPromiseResolveBlock)resolve
                            rejecter:(RCTPromiseRejectBlock)reject)
 {
-    NSError *error;
-    NSMutableDictionary *package = [[CodePushPackage getCurrentPackage:&error] mutableCopy];
-    
-    if (error) {
-        reject([NSString stringWithFormat: @"%lu", (long)error.code], error.localizedDescription, error);
-        return;
+    NSDictionary *package = [CodePushPackage getCurrentPackage];
+    if (package == nil) {
+        return resolve(nil);
     }
     
+    NSMutableDictionary *mutablePackage = [package mutableCopy];
+
     // Add the "isPending" virtual property to the package at this point, so that
     // the script-side doesn't need to immediately call back into native to populate it.
-    BOOL isPendingUpdate = [self isPendingUpdate:[package objectForKey:PackageHashKey]];
-    [package setObject:@(isPendingUpdate) forKey:PackageIsPendingKey];
+    BOOL isPendingUpdate = [self isPendingUpdate:[mutablePackage objectForKey:PackageHashKey]];
+    [mutablePackage setObject:@(isPendingUpdate) forKey:PackageIsPendingKey];
     
-    resolve(package);
+    resolve(mutablePackage);
 }
 
 /*
@@ -527,11 +512,10 @@ RCT_EXPORT_METHOD(isFirstRun:(NSString *)packageHash
                      resolve:(RCTPromiseResolveBlock)resolve
                     rejecter:(RCTPromiseRejectBlock)reject)
 {
-    NSError *error;
     BOOL isFirstRun = _isFirstRunAfterUpdate
                         && nil != packageHash
                         && [packageHash length] > 0
-                        && [packageHash isEqualToString:[CodePushPackage getCurrentPackageHash:&error]];
+                        && [packageHash isEqualToString:[CodePushPackage getCurrentPackageHash]];
     
     resolve(@(isFirstRun));
 }
@@ -565,9 +549,9 @@ RCT_EXPORT_METHOD(getNewStatusReport:(RCTPromiseResolveBlock)resolve
             }
         }
     } else if (_isFirstRunAfterUpdate) {
-        NSError *error;
-        NSDictionary *currentPackage = [CodePushPackage getCurrentPackage:&error];
-        if (!error && currentPackage) {
+        NSDictionary *currentPackage = [CodePushPackage getCurrentPackage];
+        
+        if (currentPackage) {
             resolve([CodePushTelemetryManager getUpdateReport:currentPackage]);
             return;
         }

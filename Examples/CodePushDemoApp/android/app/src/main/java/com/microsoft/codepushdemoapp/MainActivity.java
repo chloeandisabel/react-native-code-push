@@ -16,7 +16,7 @@ public class MainActivity extends ReactActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        codePush = new CodePush("deployment-key-here", this, BuildConfig.DEBUG);
+        codePush = new CodePush("d73bf5d8-4fbd-4e55-a837-accd328a21ba", this, BuildConfig.DEBUG);
         super.onCreate(savedInstanceState);
     }
 

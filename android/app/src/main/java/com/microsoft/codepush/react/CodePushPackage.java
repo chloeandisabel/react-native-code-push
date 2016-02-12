@@ -41,10 +41,6 @@ public class CodePushPackage {
         this.documentsDirectory = documentsDirectory;
     }
 
-    public String getDownloadFilePath() {
-        return CodePushUtils.appendPathComponent(getCodePushPath(), DOWNLOAD_FILE_NAME);
-    }
-
     public String getUnzippedFolderPath() {
         return CodePushUtils.appendPathComponent(getCodePushPath(), UNZIPPED_FOLDER_NAME);
     }
@@ -75,7 +71,10 @@ public class CodePushPackage {
         try {
             return CodePushUtils.getWritableMapFromFile(statusFilePath);
         } catch (IOException e) {
-            throw new CodePushUnknownException("Error getting current package info" , e);
+            e.printStackTrace();
+            // Status file is corrupted
+            FileUtils.deleteFileAtPathSilently(statusFilePath);
+            return new WritableNativeMap();
         }
     }
 
@@ -99,11 +98,11 @@ public class CodePushPackage {
 
     public String getCurrentPackageBundlePath() {
         String packageFolder = getCurrentPackageFolderPath();
-        if (packageFolder == null) {
+        WritableMap currentPackage = getCurrentPackage();
+        if (packageFolder == null || currentPackage == null) {
             return null;
         }
 
-        WritableMap currentPackage = getCurrentPackage();
         String relativeBundlePath = CodePushUtils.tryGetString(currentPackage, RELATIVE_BUNDLE_PATH_KEY);
         if (relativeBundlePath == null) {
             return CodePushUtils.appendPathComponent(packageFolder, UPDATE_BUNDLE_FILE_NAME);
@@ -127,18 +126,13 @@ public class CodePushPackage {
     }
 
     public WritableMap getCurrentPackage() {
-        String folderPath = getCurrentPackageFolderPath();
-        if (folderPath == null) {
-            return new WritableNativeMap();
-        }
-
-        String packagePath = CodePushUtils.appendPathComponent(folderPath, PACKAGE_FILE_NAME);
-        try {
-            return CodePushUtils.getWritableMapFromFile(packagePath);
-        } catch (IOException e) {
+        String currentPackageHash = getCurrentPackageHash();
+        if (currentPackageHash == null) {
             // There is no current package.
             return null;
         }
+
+        return getPackage(currentPackageHash);
     }
 
     public WritableMap getPackage(String packageHash) {
@@ -147,6 +141,7 @@ public class CodePushPackage {
         try {
             return CodePushUtils.getWritableMapFromFile(packageFilePath);
         } catch (IOException e) {
+            // Package with that hash does not exist
             return null;
         }
     }
@@ -164,6 +159,12 @@ public class CodePushPackage {
         File downloadFile = null;
         boolean isZip = false;
 
+        if (FileUtils.fileAtPathExists(newPackageFolderPath)) {
+            // This removes any unzipped download data that could have been left
+            // uncleared due to a crash or error during the download process.
+            FileUtils.deleteDirectoryAtPath(newPackageFolderPath);
+        }
+
         // Download the file while checking if it is a zip and notifying client of progress.
         try {
             downloadUrl = new URL(downloadUrlString);
@@ -176,6 +177,12 @@ public class CodePushPackage {
             File downloadFolder = new File(getCodePushPath());
             downloadFolder.mkdirs();
             downloadFile = new File(downloadFolder, DOWNLOAD_FILE_NAME);
+            if (downloadFile.exists()) {
+                // This removes any unzipped download data that could have been left
+                // uncleared due to a crash or error during the download process.
+                downloadFile.delete();
+            }
+
             fos = new FileOutputStream(downloadFile);
             bout = new BufferedOutputStream(fos, DOWNLOAD_BUFFER_SIZE);
             byte[] data = new byte[DOWNLOAD_BUFFER_SIZE];

@@ -138,14 +138,15 @@ public class CodePush {
 
         try {
             String packageFilePath = codePushPackage.getCurrentPackageBundlePath();
-            if (packageFilePath == null) {
+            ReadableMap packageMetadata = codePushPackage.getCurrentPackage();
+
+            if (packageFilePath == null || packageMetadata == null) {
                 // There has not been any downloaded updates.
                 CodePushUtils.logBundleUrl(binaryJsBundleUrl);
                 isRunningBinaryVersion = true;
                 return binaryJsBundleUrl;
             }
 
-            ReadableMap packageMetadata = codePushPackage.getCurrentPackage();
             Long binaryModifiedDateDuringPackageInstall = null;
             String binaryModifiedDateDuringPackageInstallString = CodePushUtils.tryGetString(packageMetadata, BINARY_MODIFIED_TIME_KEY);
             if (binaryModifiedDateDuringPackageInstallString != null) {
@@ -411,16 +412,20 @@ public class CodePush {
                 @Override
                 protected Void doInBackground(Object... params) {
                     WritableMap currentPackage = codePushPackage.getCurrentPackage();
+                    if (currentPackage != null) {
+                        Boolean isPendingUpdate = false;
 
-                    Boolean isPendingUpdate = false;
+                        if (currentPackage.hasKey(codePushPackage.PACKAGE_HASH_KEY)) {
+                            String currentHash = currentPackage.getString(codePushPackage.PACKAGE_HASH_KEY);
+                            isPendingUpdate = CodePush.this.isPendingUpdate(currentHash);
+                        }
 
-                    if (currentPackage.hasKey(codePushPackage.PACKAGE_HASH_KEY)) {
-                        String currentHash = currentPackage.getString(codePushPackage.PACKAGE_HASH_KEY);
-                        isPendingUpdate = CodePush.this.isPendingUpdate(currentHash);
+                        currentPackage.putBoolean("isPending", isPendingUpdate);
+                        promise.resolve(currentPackage);
+                        return null;
                     }
 
-                    currentPackage.putBoolean("isPending", isPendingUpdate);
-                    promise.resolve(currentPackage);
+                    promise.resolve("");
                     return null;
                 }
             };

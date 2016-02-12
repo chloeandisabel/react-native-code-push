@@ -72,13 +72,12 @@ failCallback:(void (^)(NSError *err))failCallback;
    removePendingUpdate:(BOOL)removePendingUpdate
                  error:(NSError **)error;
 
-+ (NSDictionary *)getCurrentPackage:(NSError **)error;
-+ (NSString *)getCurrentPackageFolderPath:(NSError **)error;
-+ (NSString *)getCurrentPackageBundlePath:(NSError **)error;
-+ (NSString *)getCurrentPackageHash:(NSError **)error;
++ (NSDictionary *)getCurrentPackage;
++ (NSString *)getCurrentPackageFolderPath;
++ (NSString *)getCurrentPackageBundlePath;
++ (NSString *)getCurrentPackageHash;
 
-+ (NSDictionary *)getPackage:(NSString *)packageHash
-                       error:(NSError **)error;
++ (NSDictionary *)getPackage:(NSString *)packageHash;
 
 + (NSString *)getPackageFolderPath:(NSString *)packageHash;
 + (BOOL)isCodePushError:(NSError *)err;
