@@ -71,9 +71,8 @@ public class CodePushPackage {
         try {
             return CodePushUtils.getWritableMapFromFile(statusFilePath);
         } catch (IOException e) {
+            // Should not happen, unless status file is corrupted.
             e.printStackTrace();
-            // Status file is corrupted
-            FileUtils.deleteFileAtPathSilently(statusFilePath);
             return new WritableNativeMap();
         }
     }
@@ -137,11 +136,15 @@ public class CodePushPackage {
 
     public WritableMap getPackage(String packageHash) {
         String folderPath = getPackageFolderPath(packageHash);
+        if (!FileUtils.fileAtPathExists(folderPath)) {
+            return null;
+        }
+
         String packageFilePath = CodePushUtils.appendPathComponent(folderPath, PACKAGE_FILE_NAME);
         try {
             return CodePushUtils.getWritableMapFromFile(packageFilePath);
         } catch (IOException e) {
-            // Package with that hash does not exist
+            // Should not happen, unless the update metadata was deleted or corrupted somehow.
             return null;
         }
     }

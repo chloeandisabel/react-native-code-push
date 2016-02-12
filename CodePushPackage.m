@@ -49,15 +49,8 @@ NSString * const UnzippedFolderName = @"unzipped";
                                                   encoding:NSUTF8StringEncoding
                                                      error:&error];
     if (error) {
-        // File is corrupted, delete it.
+        // Should not happen, unless the status file is somehow corrupted.
         NSLog(@"Error reading contents of status file %@: %@", statusFilePath, error);
-        NSError *deleteError;
-        [[NSFileManager defaultManager] removeItemAtPath:statusFilePath
-                                                   error:&deleteError];
-        if (deleteError) {
-            NSLog(@"Error deleting status file %@: %@", statusFilePath, deleteError);
-        }
-        
         return [NSMutableDictionary dictionary];
     }
     
@@ -66,15 +59,8 @@ NSString * const UnzippedFolderName = @"unzipped";
                                                          options:kNilOptions
                                                            error:&error];
     if (error) {
-        // File is corrupted, delete it.
+        // Should not happen, unless the status file is somehow corrupted.
         NSLog(@"Error parsing contents of status file %@: %@", statusFilePath, error);
-        NSError *deleteError;
-        [[NSFileManager defaultManager] removeItemAtPath:statusFilePath
-                                                   error:&deleteError];
-        if (deleteError) {
-            NSLog(@"Error deleting status file %@: %@", statusFilePath, deleteError);
-        }
-        
         return [NSMutableDictionary dictionary];
     }
     
@@ -86,7 +72,7 @@ NSString * const UnzippedFolderName = @"unzipped";
 {
     
     NSData *packageInfoData = [NSJSONSerialization dataWithJSONObject:packageInfo
-                                                              options:0
+                                                              options:kNilOptions
                                                                 error:error];
     
     NSString *packageInfoString = [[NSString alloc] initWithData:packageInfoData
@@ -174,6 +160,7 @@ NSString * const UnzippedFolderName = @"unzipped";
                                                   encoding:NSUTF8StringEncoding
                                                      error:&error];
     if (error) {
+        // Should not happen, unless the metadata file was somehow deleted.
         NSLog(@"Error reading contents of update metadata file %@: %@", packageFilePath, error);
         return nil;
     }
@@ -183,6 +170,7 @@ NSString * const UnzippedFolderName = @"unzipped";
                                                              options:kNilOptions
                                                                error:&error];
     if (error) {
+        // Should not happen, unless the metadata file is somehow corrupted.
         NSLog(@"Error parsing contents of update metadata file %@: %@", packageFilePath, error);
         return nil;
     }
@@ -208,6 +196,16 @@ NSString * const UnzippedFolderName = @"unzipped";
     NSString *newPackageFolderPath = [self getPackageFolderPath:updatePackage[@"packageHash"]];
     NSError *error = nil;
     
+    
+    [[NSFileManager defaultManager] createDirectoryAtPath:[self getCodePushPath]
+                              withIntermediateDirectories:YES
+                                               attributes:nil
+                                                    error:&error];
+    if (error) {
+        failCallback(error);
+        return;
+    }
+    
     if ([[NSFileManager defaultManager] fileExistsAtPath:newPackageFolderPath]) {
         // This removes any downloaded data that could have been left
         // uncleared due to a crash or error during the download process.
@@ -217,15 +215,6 @@ NSString * const UnzippedFolderName = @"unzipped";
             failCallback(error);
             return;
         }
-    }
-    
-    [[NSFileManager defaultManager] createDirectoryAtPath:newPackageFolderPath
-                              withIntermediateDirectories:YES
-                                               attributes:nil
-                                                    error:&error];
-    if (error) {
-        failCallback(error);
-        return;
     }
     
     NSString *downloadFilePath = [self getDownloadFilePath];
@@ -276,9 +265,9 @@ NSString * const UnzippedFolderName = @"unzipped";
                         return;
                     }
                     
-                    [CodePushPackage copyEntriesInFolder:currentPackageFolderPath
-                                              destFolder:newPackageFolderPath
-                                                   error:&error];
+                    [[NSFileManager defaultManager] copyItemAtPath:currentPackageFolderPath
+                                                            toPath:newPackageFolderPath
+                                                             error:&error];
                     if (error) {
                         failCallback(error);
                         return;
@@ -378,7 +367,7 @@ NSString * const UnzippedFolderName = @"unzipped";
             }
             
             NSData *updateSerializedData = [NSJSONSerialization dataWithJSONObject:mutableUpdatePackage
-                                                                           options:0
+                                                                           options:kNilOptions
                                                                              error:&error];
             NSString *packageJsonString = [[NSString alloc] initWithData:updateSerializedData
                                                                 encoding:NSUTF8StringEncoding];
@@ -514,7 +503,6 @@ NSString * const UnzippedFolderName = @"unzipped";
     }
     
     [info setValue:packageHash forKey:@"currentPackage"];
-
     [self updateCurrentPackageInfo:info
                              error:error];
 }
